@@ -16,3 +16,4 @@ rule scan = parse
 | '.' { DOT }
     (* ignore whitespace *)
 | ' '|'\t'|'\n'|'\r' { scan lexbuf }
+| eof { EOF }

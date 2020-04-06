@@ -54,6 +54,45 @@ let rec str_to_int_term ((var_tab, var_inv, sym_tab, sym_inv) as tabs) = functio
 let str_to_int_ast tabs ast =
     let rec aux acc tabs = function
     | [] -> List.rev acc, tabs
-    | h::t -> let tabs', h' = str_to_int_term tabs h in aux (h'::acc) tabs' t
+    | (t, g)::tt ->
+        let tabs', t' = str_to_int_term tabs t in
+        let tabs', rg' = List.fold_left (fun (tabs, acc) t ->
+            let tabs', t' = str_to_int_term tabs t in (tabs', t'::acc)
+        ) (tabs', []) g in
+        let g' = List.rev rg' in
+        aux ((t', g')::acc) tabs' tt
     in aux [] tabs ast
 
+let reconsult file_name = 
+    let in_channel = open_in file_name in
+    let lexbuf = Lexing.from_channel in_channel in
+    let ast = Parser.prog Lexer.scan lexbuf in
+    str_to_int_ast
+    (StringMap.empty, IntMap.empty, StringMap.empty, IntMap.empty) ast
+
+let rec print_term ((var_inv, sym_inv) as invs) = function
+| Var x -> print_string (IntMap.find x var_inv)
+| Node (x, l) ->
+    print_string (IntMap.find x sym_inv);
+    ( match l with
+    | [] -> ()
+    | h::t ->
+        print_string "(";
+        print_term invs h;
+        List.iter (fun x -> print_string ","; print_term invs x) t;
+        print_string ")"
+    )
+
+let rec print_goal invs = function
+| [] -> print_string "."
+| h::(_::_ as t) -> print_term invs h; print_string ","; print_goal invs t
+| h::[] -> print_term invs h; print_string "."
+
+let print_clause invs (t, g) =
+    print_term invs t; print_string ":-"; print_goal invs g; print_string "\n"
+
+let print_kb invs = List.iter (print_clause invs)
+
+let () =
+    let kb, (var_tab, var_inv, sym_tab, sym_inv) = reconsult "prog/nat.pl" in
+    print_kb (var_inv, sym_inv) kb
