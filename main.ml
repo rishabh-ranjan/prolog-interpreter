@@ -1,5 +1,11 @@
 open Types
 
+let vars t =
+    let rec aux = function
+    | Var v -> IntSet.singleton v
+    | Node (_, l) -> List.map aux l |> List.fold_left IntSet.union IntSet.empty 
+    in IntSet.elements (aux t)
+
 let rec subst s = function
 | Var v -> (match StringMap.find_opt v s with | None -> Var v | Some t -> t)
 | Node (x, l) -> Node (x, List.map (subst s) l)
@@ -49,13 +55,12 @@ let conv_clause (t, l) =
 
 let conv_kb = List.map conv_clause
 
-let rec find_mex nex x = match IntMap.find_opt x nex with
-| None -> nex, x
-| Some y ->
-    let nex, r = find_mex nex y in IntMap.add x r nex, r
-
-let claim_mex nex =
-    let nex, r = find_mex nex 0 in IntMap.add r (r+1) nex, r
+let rec next_min (c, l) = match l with
+| [] -> c+1, []
+| h::t ->
+    if h < c+1 then next_min (c, t)
+    else if h > c+1 then c+1, l
+    else next_min (c+1, t)
 
 let rec rename_term_list nex tab l =
     let nex, tab, rl' = List.fold_left (fun (nex, tab, acc) t ->
@@ -65,18 +70,14 @@ let rec rename_term_list nex tab l =
 
 and rename_term nex tab = function
 | Var v -> (match IntMap.find_opt v tab with
-    | None -> let nex, r = claim_mex nex in nex, IntMap.add v r tab, Var r
+    | None -> let (r, _) as nex = next_min nex in nex, IntMap.add v r tab, Var r
     | Some r -> nex, tab, Var r
 )
 | Node (x, l) ->
     let nex, tab, l' = rename_term_list nex tab l in nex, tab, Node (x, l')
 
-let rec fixed_term_nex nex = function
-| Var v -> IntMap.add v (v+1) nex
-| Node (x, l) -> List.fold_left fixed_term_nex nex l
-
 let rename_clause ft (t, l) =
-    let nex = fixed_term_nex IntMap.empty ft in
+    let nex = (-1, vars ft) in
     let nex, tab, t' = rename_term nex IntMap.empty t in
     let _, _, l' = rename_term_list nex tab l in
     (t', l')
@@ -112,6 +113,14 @@ let print_clause (t, g) =
     print_term t; if g = [] then () else print_string " :- "; print_goal g
 
 let print_kb = List.iter print_clause
+
+let parse_in parse_fn conv_fn =
+    let lexbuf = Lexing.from_channel stdin in
+    parse_fn Lexer.scan lexbuf |> conv_fn
+
+let parse_prog () = parse_in Parser.prog conv_kb
+let parse_clause () = parse_in Parser.clause conv_clause
+let parse_term () = parse_in Parser.term (conv_term StringMap.empty)
 
 let () =
     print_kb (reconsult "prog/succmath_simple.pl");

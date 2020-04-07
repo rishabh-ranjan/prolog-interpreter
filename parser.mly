@@ -9,8 +9,10 @@
 
 %start prog
 %type <string Types.clause list> prog
+%start clause
 %type <string Types.clause> clause
 %type <string Types.term list> term_list
+%start term
 %type <string Types.term> term
 %start goal
 %type <string Types.term list> goal

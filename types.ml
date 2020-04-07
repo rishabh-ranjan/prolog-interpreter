@@ -1,4 +1,5 @@
 module Int = struct let compare = compare type t = int end
+module IntSet = Set.Make(Int)
 module IntMap = Map.Make(Int)
 module StringMap = Map.Make(String)
 
