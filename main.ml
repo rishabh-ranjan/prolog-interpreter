@@ -42,12 +42,44 @@ and conv_term tab = function
 ) 
 | Node (x, l) -> let tab, l' = conv_term_list tab l in tab, Node (x, l')
 
-let conv_clause (t, tl) =
+let conv_clause (t, l) =
     let tab, t' = conv_term StringMap.empty t in
-    let tab, tl' = conv_term_list tab tl in
-    t', tl'
+    let tab, l' = conv_term_list tab l in
+    (t', l')
 
 let conv_kb = List.map conv_clause
+
+let rec find_mex nex x = match IntMap.find_opt x nex with
+| None -> nex, x
+| Some y ->
+    let nex, r = find_mex nex y in IntMap.add x r nex, r
+
+let claim_mex nex =
+    let nex, r = find_mex nex 0 in IntMap.add r (r+1) nex, r
+
+let rec rename_term_list nex tab l =
+    let nex, tab, rl' = List.fold_left (fun (nex, tab, acc) t ->
+        let nex, tab, t' = rename_term nex tab t in (nex, tab, t'::acc)
+    ) (nex, tab, []) l in
+    nex, tab, List.rev rl'
+
+and rename_term nex tab = function
+| Var v -> (match IntMap.find_opt v tab with
+    | None -> let nex, r = claim_mex nex in nex, IntMap.add v r tab, Var r
+    | Some r -> nex, tab, Var r
+)
+| Node (x, l) ->
+    let nex, tab, l' = rename_term_list nex tab l in nex, tab, Node (x, l')
+
+let rec fixed_term_nex nex = function
+| Var v -> IntMap.add v (v+1) nex
+| Node (x, l) -> List.fold_left fixed_term_nex nex l
+
+let rename_clause ft (t, l) =
+    let nex = fixed_term_nex IntMap.empty ft in
+    let nex, tab, t' = rename_term nex IntMap.empty t in
+    let _, _, l' = rename_term_list nex tab l in
+    (t', l')
 
 let reconsult file_name =
     let in_channel = open_in file_name in
