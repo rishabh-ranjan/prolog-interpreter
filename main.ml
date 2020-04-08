@@ -12,6 +12,11 @@ let rec print_term = function
         print_string ")"
     )
 
+let print_subst = IntMap.iter (fun k v ->
+    print_string "_"; print_int k; print_string " -> ";
+    print_term v; print_string "\n"
+)
+
 let rec print_goal = function
 | [] -> print_string ".\n"
 | h::[] -> print_term h; print_string ".\n"
@@ -138,11 +143,20 @@ and rename_term nex tab = function
 | Node (x, l) ->
     let nex, tab, l' = rename_term_list nex tab l in nex, tab, Node (x, l')
 
-let rename_clause ft (t, l) =
-    let nex = (-1, vars ft) in
+let rename_clause vl (t, l) =
+    let nex = (-1, vl) in
     let nex, tab, t' = rename_term nex IntMap.empty t in
     let _, _, l' = rename_term_list nex tab l in
     (t', l')
+
+let clean_subst vl sub =
+    let rec aux acc vl sl = match vl, sl with
+    | [], _ | _, [] -> acc
+    | vh::vt, (shk, shv)::st ->
+        if vh < shk then aux acc vt sl
+        else if vh > shk then aux acc vl st
+        else aux (IntMap.add shk shv acc) vt st
+    in aux IntMap.empty vl (IntMap.bindings sub)
 
 (* let rec resolve_term_list kb = List.fold_left (resolve_term kb) *)
 
@@ -176,7 +190,6 @@ let rec resolve_term_list kb sub kl = function
     ( match kls with
     | [] -> failwith "improper backtrack image"
     | lh::lt ->
-            print_term h; print_string "\n";
         let rh, nh = resolve_term kb lh h in
         ( match rh with
         | None -> None, N
@@ -217,15 +230,16 @@ let rec resolve_term_list kb sub kl = function
 and resolve_term kb (km, kl) tm = match km with
 | [] -> None, ([], S [])
 | kh::kt ->
-    let (ct, cl) = rename_clause tm kh in
+    let vl = vars tm in
+    let (ct, cl) = rename_clause vl kh in
     ( match mgu ct tm with
     | None -> resolve_term kb (kt, N) tm
     | Some m ->
-        (*let kl = if kl = None then List.Map (fun _ -> (kb, None)) cl else kl in*)
         let r, kl' = resolve_term_list kb m kl cl in
         ( match r with
         | None -> resolve_term kb (kt, N) tm
-        | Some s -> Some s, if kl' = N then (kt, N) else (km, kl')
+        | Some s -> Some (clean_subst vl s),
+            if kl' = N then (kt, N) else (km, kl')
         )
     )
 
@@ -260,10 +274,15 @@ let query kb =
     print_string "\n?- "; flush stdout;
     let lexbuf = Lexing.from_channel stdin in
     let (_, inv), g = Parser.goal Lexer.scan lexbuf |> conv_goal in
-    ( match resolve_goal kb g with
-    | None -> print_string "false.\n"
-    | Some s -> print_soln inv s; print_string "true.\n"
-    ); flush stdout
+    let rec aux k b =
+        let r, k = resolve_term_list kb iden_subst k g in
+        match r with
+        | None -> (if b then "yes.\n" else "no.\n") |> print_string
+        | Some s ->
+            print_soln inv s;
+            let _ = read_line () in
+            aux k true
+    in aux N false
 
 let parse_in parse_fn conv_fn =
     let lexbuf = Lexing.from_channel stdin in
