@@ -13,12 +13,12 @@ let atom =
 rule scan = parse
 | '(' { LPAREN }
 | ')' { RPAREN }
-| ',' { COMMA }
-| ';' { SEMICOLON }
+| ',' { AND }
+| ';' { OR }
 | ":-" { IF }
-| '.' { DOT }
+| '.' { SEP }
 | var as x { VAR x }
-| atom as x { SYM x }
+| atom as x { ATOM x }
     (* ignore whitespace *)
 | ' '|'\t'|'\n'|'\r' { scan lexbuf }
 | eof { EOF }
