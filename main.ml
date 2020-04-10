@@ -137,11 +137,18 @@ let rec conv_goal_term_list tabs l =
     tabs, List.rev rl'
 
 and conv_goal_term ((tab, inv) as tabs) = function
-| Var v -> ( match StringMap.find_opt v tab with
-    | None -> let n = StringMap.cardinal tab in
-        (StringMap.add v n tab, IntMap.add n v inv), Var n
-    | Some n -> tabs, Var n
-) 
+| Var v -> 
+    (* anonymous variable *)
+    if v = "_" then
+        let n = StringMap.cardinal tab in
+        let v = v ^ (string_of_int n) in
+        (StringMap.add v n tab, inv), Var n
+    else
+        ( match StringMap.find_opt v tab with
+        | None -> let n = StringMap.cardinal tab in
+            (StringMap.add v n tab, IntMap.add n v inv), Var n
+        | Some n -> tabs, Var n
+        ) 
 | Node (x, l) ->
     let tabs, l' = conv_goal_term_list tabs l in tabs, Node (x, l')
 
@@ -254,15 +261,20 @@ let query kb =
     print_string "\n?- "; flush stdout;
     let lexbuf = Lexing.from_channel stdin in
     let (_, inv), g = Parser.goal Lexer.scan lexbuf |> conv_goal in
-    let rec aux k b =
+    let rec aux k =
         let r, k = resolve_term_list kb IntMap.empty k g in
         match r with
-        | None -> (if b then "yes.\n" else "no.\n") |> print_string
+        | None -> "\027[1;31mno.\027[0m\n" |> print_string
         | Some s ->
             print_soln inv s;
-            let _ = read_line () in
-            aux k true
-    in aux N false
+            print_string "\027[1;34myes\027[0m";
+            let inp = read_line () in
+            print_string "\027[0m";
+            ( match inp with
+            | ";" -> aux k
+            | _ -> ()
+            )
+    in aux N
 
 (* parse individual structures from stdin for iteractive use *)
 let parse_in parse_fn conv_fn =
@@ -275,9 +287,15 @@ let parse_term () = snd (parse_in Parser.term (conv_term StringMap.empty))
 
 (* accepts prolog file once as a commandline arg *)
 let main () =
-    let kb = reconsult Sys.argv.(1) in
-    print_kb kb; flush stdout;
-    while true do query kb done
+    if Array.length Sys.argv = 0 then
+        print_endline "please provide file as a commandline argument"
+    else
+        let kb = reconsult Sys.argv.(1) in
+        print_endline "\027[1mrpl\027[0m - a prolog subset by Rishabh Ranjan";
+        print_endline "use `;' to explore the resolution space";
+        print_endline "and `.' to start a fresh query";
+        print_endline ("file consulted: " ^ Sys.argv.(1));
+        while true do query kb done
 
 let () = main ()
 
