@@ -4,8 +4,8 @@
 %}
 
 %token <string> VAR SYM
-%token LPAREN RPAREN COMMA IF DOT
-%token EOF /* TODO: ?? */
+%token LPAREN RPAREN COMMA SEMICOLON IF DOT
+%token EOF
 
 %start prog
 %type <string Types.clause list> prog
