@@ -1,4 +1,3 @@
-(*TODO: modify resolution comments *)
 open Types
 
 (*** printing ***)
@@ -241,117 +240,56 @@ let rename_clause vl (t, g) =
 
 (*** goal resolution ***)
 
-let rec resolve_goal kb sub = function
-| G_end -> None, G_end
-| G_new g -> ( match g with
-    | Empty -> Some sub, G_end
+let rec resolve kb sub = function
+| End -> None, End
+| New g -> ( match g with
+    | Empty -> Some sub, End
     | Term t ->
-        let sol, ts = resolve_term kb (T_new (subst sub t)) in
+        let sol, ts = resolve kb sub (Head (subst sub t, kb)) in
         ( match sol with
-        | None -> None, G_end
-        | Some sub' -> Some (compose sub sub'), G_term ts
+        | None -> None, End
+        | Some sub' -> Some (compose sub sub'), ts
         )
-    | And (l, r) -> resolve_goal kb sub (G_and (G_new l, G_new r, r))
-    | Or (l, r) -> resolve_goal kb sub (G_or (G_new l, G_new r))
+    | And (l, r) -> resolve kb sub (And_goal (New l, New r, r))
+    | Or (l, r) -> resolve kb sub (Or_goal (New l, New r))
 )
-| G_term ts ->
-    let sol, ts' = resolve_term kb ts in
+| And_goal (ls, rs, r) ->
+    let sol, ls' = resolve kb sub ls in
     ( match sol with
-    | None -> None, G_end
-    | Some sub' -> Some (compose sub sub'), G_term ts'
-    )
-| G_and (ls, rs, r) ->
-    let sol, ls' = resolve_goal kb sub ls in
-    ( match sol with
-    | None -> None, G_end
+    | None -> None, End
     | Some sub' ->
-        let sol, rs' = resolve_goal kb sub' rs in
+        let sol, rs' = resolve kb sub' rs in
         ( match sol with
-        | None -> resolve_goal kb sub (G_and (ls', G_new r, r))
-        | Some sub'' -> Some sub'', G_and (ls, rs', r)
+        | None -> resolve kb sub (And_goal (ls', New r, r))
+        | _ -> sol, And_goal (ls, rs', r)
         )
     )
-(* TODO: store or state as well to cover all solutions to the or predicate *)
-| G_or (ls, rs) ->
-    let sol, ls' = resolve_goal kb sub ls in
+| Or_goal (ls, rs) ->
+    let sol, ls' = resolve kb sub ls in
     ( match sol with
     | None ->
-        let sol, rs' = resolve_goal kb sub rs in
-        sol, G_or (ls, rs')
-    | Some sub' -> Some sub', G_or (ls', rs)
+        let sol, rs' = resolve kb sub rs in
+        sol, Or_goal (End, rs')
+    | _ -> sol, Or_goal (ls', rs)
     )
-
-and resolve_term kb = function
-| T_end -> None, T_end
-| T_new t -> resolve_term kb (T_term (t, kb))
-| T_term (t, kl) -> (match kl with
-    | [] -> None, T_end
+| Head (t, kl) -> ( match kl with
+    | [] -> None, End
     | kh::kt ->
         let vl = vars t in
         let (ct, cg) = rename_clause vl kh in
         ( match mgu t ct with
-        | None -> resolve_term kb (T_term (t, kt))
-        | Some m -> resolve_term kb (T_goal (m, G_new cg, vl, t, kt))
+        | None -> resolve kb sub (Head (t, kt))
+        | Some m -> resolve kb sub (Body (t, kt, vl, m, New cg))
         )
 )
-| T_goal (m, gs, vl, t, kt) ->
-    let sol, gs' = resolve_goal kb m gs in
+| Body (t, kt, vl, m, gs) ->
+    let sol, gs' = resolve kb m gs in
     ( match sol with
-    | None -> resolve_term kb (T_term (t, kt))
-    | Some sub ->
-        let r = clean_subst vl sub in
-        Some r, T_goal (m, gs', vl, t, kt)
+    | None -> resolve kb sub (Head (t, kt))
+    | Some sub' ->
+        let r = clean_subst vl sub' |> compose sub in
+        Some r, Body (t, kt, vl, m, gs')
     )
-
-    (*
-let rec resolve_term_list kb sub kl = function
-| [] -> Some sub, N
-| (h::t) as l ->
-    let h = subst sub h in
-    let kls = ( match kl with
-    | N -> List.map (fun _ -> (kb, N)) l
-    | S x -> x
-    ) in
-    ( match kls with
-    | [] -> failwith "improper backtrack image"
-    | lh::lt ->
-        let rh, nh = resolve_term kb lh h in
-        ( match rh with
-        | None -> None, N
-        | Some sh ->
-            let cs = compose sub sh in
-            let rt, nt = resolve_term_list kb cs (S lt) t in
-            ( match rt with
-            | None -> resolve_term_list kb sub (S (nh::lt)) l
-            | Some st -> Some (compose cs st),
-                ( match nt with
-                | N -> S (nh::(List.map (fun _ -> (kb, N)) lt))
-                | S x -> S (lh::x)
-                )
-            )
-        )
-    )
-
-(*
- * (km, kl) = backtrack state for the term
- * tm = term to be matched
- *)
-and resolve_term kb (km, kl) tm = match km with
-| [] -> None, ([], S [])
-| kh::kt ->
-    let vl = vars tm in
-    let (ct, cl) = rename_clause vl kh in
-    ( match mgu ct tm with
-    | None -> resolve_term kb (kt, N) tm
-    | Some m ->
-        let r, kl' = resolve_term_list kb m kl cl in
-        ( match r with
-        | None -> resolve_term kb (kt, N) tm
-        | Some s -> Some (clean_subst vl s),
-            if kl' = N then (kt, N) else (km, kl')
-        )
-    )
-    *)
 
 (*** user interface ***)
 
@@ -363,7 +301,7 @@ let reconsult file_name =
 
 (* exploration of resolution space *)
 let rec explore kb inv gs =
-    let sol, gs' = resolve_goal kb IntMap.empty gs in
+    let sol, gs' = resolve kb IntMap.empty gs in
     match sol with
     | None -> print_string "\027[1;31mno.\027[0m\n"
     | Some s ->
@@ -381,7 +319,7 @@ let query kb =
     print_string "\n?- "; flush stdout;
     let lexbuf = Lexing.from_channel stdin in
     let (_, inv), g = Parser.query Lexer.scan lexbuf |> conv_query in
-    explore kb inv (G_new g)
+    explore kb inv (New g)
 
 (* accepts prolog file once as a commandline arg *)
 let main () =

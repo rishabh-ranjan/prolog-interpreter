@@ -1,11 +1,10 @@
 /* vim: set ft=yacc: */
-/* TODO: error handling */
 %{
 %}
 
 %token <string> VAR ATOM
 %token LPAREN RPAREN AND OR IF SEP
-%token EOF
+%token ERROR EOF
 
 %right OR
 %right AND
@@ -23,6 +22,12 @@
 
 prog: /* empty */ { [] }
     | clause SEP prog { $1::$3 }
+    | error {
+        let start_pos = Parsing.symbol_start_pos () in
+        Printf.eprintf
+            "\027[31mLine %d: syntax error\027[0m\n" (start_pos.pos_lnum);
+        flush stderr; []
+    }
 ;
 
 clause: term { ($1, Types.Empty) }
@@ -45,5 +50,8 @@ term_list: term { [$1] }
 ;
 
 query: goal SEP { $1 }
+     | error {
+         Printf.eprintf "\027[31msyntax error\027[0m\n";
+         flush stderr; Types.Empty
+     }
 ;
-
