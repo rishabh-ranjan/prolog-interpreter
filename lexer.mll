@@ -9,14 +9,23 @@
         }
 }
 
+let comment =
+    (* adapted from https://en.wikipedia.org/wiki/RE/flex#Lazy_quantifiers *)
+    "/*"([^'*']|('*'+[^'*''/']))*'*'+'/' (* multi-line comment *)
+    | '%'[^'\n']*'\n' (* single-line comment *)
+
 let var = ['A'-'Z''_']['A'-'Z''a'-'z''0'-'9''_']*
+
 let atom =
     (['a'-'z']['A'-'Z''a'-'z''0'-'9''_']*)
+    (* escaping not supported in quoted atoms *)
     | ('''[^''']*''')
+    | ('"'[^'"']*'"')
     | "[]"
     | (['+''-''*''/''<''>''='':''.''&''_''~']+)
 
 rule scan = parse
+| comment { scan lexbuf }
 | '(' { LPAREN }
 | ')' { RPAREN }
 | ',' { AND }

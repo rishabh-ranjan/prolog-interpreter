@@ -314,7 +314,7 @@ let rec explore kb inv gs =
         | _ -> ()
         )
 
-(* handle a query *)
+(* accept a query *)
 let query kb =
     print_string "\n?- "; flush stdout;
     let lexbuf = Lexing.from_channel stdin in
@@ -328,8 +328,9 @@ let main () =
     else
         let kb = reconsult Sys.argv.(1) in
         print_endline "\027[1mrpl\027[0m - a prolog subset by Rishabh Ranjan";
-        print_endline "use `;' to explore the resolution space";
-        print_endline "and `.' to start a fresh query";
+        print_endline "- press enter to explore the resolution space";
+        print_endline "- any other input starts a fresh query";
+        print_endline "- Cmd-C, Ctrl-C or Ctrl-Z (system dependent) to exit";
         print_endline ("file consulted: " ^ Sys.argv.(1));
         while true do query kb done
 
