@@ -1,3 +1,4 @@
+(*TODO: modify resolution comments *)
 open Types
 
 (*** printing ***)
@@ -19,12 +20,23 @@ let print_subst = IntMap.iter (fun k v ->
 )
 
 let rec print_goal = function
-| [] -> print_string ".\n"
-| h::[] -> print_term h; print_string ".\n"
-| h::t -> print_term h; print_string ", "; print_goal t
+| Empty -> ()
+| Term t -> print_term t
+| And (l, r) ->
+    let b = function
+    | Or _ -> true
+    | _ -> false
+    in
+    let p g =
+        if b g then ( print_string "("; print_goal g; print_string ")" )
+        else print_goal g
+    in
+    p l; print_string ", "; p r
+| Or (l, r) ->
+    print_goal l; print_string "; "; print_goal r
 
 let print_clause (t, g) =
-    print_term t; if g = [] then () else print_string " :- "; print_goal g
+    print_term t; if g = Empty then () else print_string " :- "; print_goal g
 
 let print_kb = List.iter print_clause
 
@@ -123,20 +135,34 @@ and conv_term tab = function
         ) 
 | Node (x, l) -> let tab, l' = conv_term_list tab l in tab, Node (x, l')
 
-let conv_clause (t, l) =
+let rec conv_goal tab = function
+| Empty -> tab, Empty
+| Term t ->
+    let tab, t' = conv_term tab t in
+    tab, Term t'
+| And (l, r) ->
+    let tab, l' = conv_goal tab l in
+    let tab, r' = conv_goal tab r in
+    tab, And (l', r')
+| Or (l, r) ->
+    let tab, l' = conv_goal tab l in
+    let tab, r' = conv_goal tab r in
+    tab, Or (l', r')
+
+let conv_clause (t, g) =
     let tab, t' = conv_term StringMap.empty t in
-    let tab, l' = conv_term_list tab l in
-    (t', l')
+    let tab, g' = conv_goal tab g in
+    (t', g')
 
 let conv_kb = List.map conv_clause
 
-let rec conv_goal_term_list tabs l =
+let rec conv_inv_term_list tabs l =
     let tabs, rl' = List.fold_left (fun (tabs, acc) t ->
-        let tabs, t' = conv_goal_term tabs t in tabs, (t'::acc)
+        let tabs, t' = conv_inv_term tabs t in tabs, (t'::acc)
     ) (tabs, []) l in
     tabs, List.rev rl'
 
-and conv_goal_term ((tab, inv) as tabs) = function
+and conv_inv_term ((tab, inv) as tabs) = function
 | Var v -> 
     (* anonymous variable *)
     if v = "_" then
@@ -150,9 +176,23 @@ and conv_goal_term ((tab, inv) as tabs) = function
         | Some n -> tabs, Var n
         ) 
 | Node (x, l) ->
-    let tabs, l' = conv_goal_term_list tabs l in tabs, Node (x, l')
+    let tabs, l' = conv_inv_term_list tabs l in tabs, Node (x, l')
 
-let conv_goal = conv_goal_term_list (StringMap.empty, IntMap.empty)
+let rec conv_inv_goal ((tab, inv) as tabs) = function
+| Empty -> tabs, Empty
+| Term t ->
+    let tabs, t' = conv_inv_term tabs t in
+    tabs, Term t'
+| And (l, r) ->
+    let tabs, l' = conv_inv_goal tabs l in
+    let tabs, r' = conv_inv_goal tabs r in
+    tabs, And (l', r')
+| Or (l, r) ->
+    let tabs, l' = conv_inv_goal tabs l in
+    let tabs, r' = conv_inv_goal tabs r in
+    tabs, Or (l', r')
+
+let conv_query = conv_inv_goal (StringMap.empty, IntMap.empty)
 
 (*** variable renaming ***)
 
@@ -179,27 +219,76 @@ and rename_term nex tab = function
 | Node (x, l) ->
     let nex, tab, l' = rename_term_list nex tab l in nex, tab, Node (x, l')
 
-let rename_clause vl (t, l) =
+let rec rename_goal nex tab = function
+| Empty -> nex, tab, Empty
+| Term t ->
+    let nex, tab, t' = rename_term nex tab t in
+    nex, tab, Term t'
+| And (l, r) ->
+    let nex, tab, l' = rename_goal nex tab l in
+    let nex, tab, r' = rename_goal nex tab r in
+    nex, tab, And (l', r')
+| Or (l, r) ->
+    let nex, tab, l' = rename_goal nex tab l in
+    let nex, tab, r' = rename_goal nex tab r in
+    nex, tab, Or (l', r')
+
+let rename_clause vl (t, g) =
     let nex = (-1, vl) in
     let nex, tab, t' = rename_term nex IntMap.empty t in
-    let _, _, l' = rename_term_list nex tab l in
-    (t', l')
+    let _, _, g' = rename_goal nex tab g in
+    (t', g')
 
 (*** goal resolution ***)
 
-(*
- * representation of the backtracking state.
- * backtrack info captured as the suffix of the
- * knowledge base that remains to be explored.
- * `N' represents fresh start state.
- *)
-type term_list_state = N | S of term_state list
-and term_state = (int clause list) * term_list_state
+let rec resolve_goal kb sub = function
+| G_end -> None, G_end
+| G_new g -> ( match g with
+    | Empty -> Some sub, G_end
+    | Term t -> let sol, ts = resolve_term kb sub (T_new t) in sol, G_term ts
+    | And (l, r) -> resolve_goal kb sub (G_and (G_new l, G_new r))
+    | Or (l, r) -> resolve_goal kb sub (G_or (G_new l, G_new r))
+)
+| G_term ts ->
+    let sol, ts' = resolve_term kb sub ts in sol, G_term ts'
+| G_and (ls, rs) ->
+    let sol, ls' = resolve_goal kb sub ls in
+    ( match sol with
+    | None -> None, G_end
+    | Some sub' ->
+        let sol, rs' = resolve_goal kb (compose sub sub') rs in
+        sol, G_and (ls', rs')
+    )
+(* TODO: store or state as well to cover all solutions to the or predicate *)
+| G_or (ls, rs) ->
+    let sol, ls' = resolve_goal kb sub ls in
+    ( match sol with
+    | None ->
+        let sol, rs' = resolve_goal kb sub rs in
+        sol, G_or (ls, rs')
+    | Some sub' -> Some (compose sub sub'), G_or (ls', rs)
+    )
 
-(*
- * kb = knowledge base, sub = initial subst,
- * kl = backtrack state for the term list
- *)
+and resolve_term kb sub = function
+| T_end -> None, T_end
+| T_new t -> resolve_term kb sub (T_term (t, kb))
+| T_term (t, kl) -> (match kl with
+    | [] -> None, T_end
+    | kh::kt ->
+        let (ct, cg) = rename_clause (vars t) kh in
+        ( match mgu t ct with
+        | None -> resolve_term kb sub (T_term (t, kt))
+        | Some m -> resolve_term kb (compose sub m) (T_goal (G_new cg, t, kt))
+        )
+)
+| T_goal (gs, t, kt) ->
+    let sol, gs' = resolve_goal kb sub gs in
+    ( match sol with
+    | None -> resolve_term kb sub (T_term (t, kt))
+    | Some sub' -> Some (compose sub sub'), (T_goal (gs', t, kt))
+    )
+
+    (*
 let rec resolve_term_list kb sub kl = function
 | [] -> Some sub, N
 | (h::t) as l ->
@@ -247,6 +336,7 @@ and resolve_term kb (km, kl) tm = match km with
             if kl' = N then (kt, N) else (km, kl')
         )
     )
+    *)
 
 (*** user interface ***)
 
@@ -256,34 +346,27 @@ let reconsult file_name =
     let lexbuf = Lexing.from_channel in_channel in
     conv_kb (Parser.prog Lexer.scan lexbuf)
 
-(* the entirity of handling a query *)
+(* exploration of resolution space *)
+let rec explore kb inv gs =
+    let sol, gs' = resolve_goal kb IntMap.empty gs in
+    match sol with
+    | None -> print_string "\027[1;31mno.\027[0m\n"
+    | Some s ->
+        print_soln inv s;
+        print_string "\027[1;34myes\027[0m";
+        let inp = read_line () in
+        print_string "\027[0m";
+        ( match inp with
+        | ";" -> explore kb inv gs'
+        | _ -> ()
+        )
+
+(* handle a query *)
 let query kb =
     print_string "\n?- "; flush stdout;
     let lexbuf = Lexing.from_channel stdin in
-    let (_, inv), g = Parser.goal Lexer.scan lexbuf |> conv_goal in
-    let rec aux k =
-        let r, k = resolve_term_list kb IntMap.empty k g in
-        match r with
-        | None -> "\027[1;31mno.\027[0m\n" |> print_string
-        | Some s ->
-            print_soln inv s;
-            print_string "\027[1;34myes\027[0m";
-            let inp = read_line () in
-            print_string "\027[0m";
-            ( match inp with
-            | ";" -> aux k
-            | _ -> ()
-            )
-    in aux N
-
-(* parse individual structures from stdin for iteractive use *)
-let parse_in parse_fn conv_fn =
-    let lexbuf = Lexing.from_channel stdin in
-    parse_fn Lexer.scan lexbuf |> conv_fn
-
-let parse_prog () = parse_in Parser.prog conv_kb
-let parse_clause () = parse_in Parser.clause conv_clause
-let parse_term () = snd (parse_in Parser.term (conv_term StringMap.empty))
+    let (_, inv), g = Parser.query Lexer.scan lexbuf |> conv_query in
+    explore kb inv (G_new g)
 
 (* accepts prolog file once as a commandline arg *)
 let main () =

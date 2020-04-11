@@ -25,7 +25,7 @@ prog: /* empty */ { [] }
     | clause SEP prog { $1::$3 }
 ;
 
-clause: term { ($1, []) }
+clause: term { ($1, Types.Empty) }
       | term IF goal { ($1, $3) }
 ;
 
