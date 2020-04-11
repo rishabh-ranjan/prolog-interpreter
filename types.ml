@@ -21,12 +21,12 @@ type goal_state =
 | G_end
 | G_new of int goal
 | G_term of term_state
-| G_and of goal_state * goal_state
+| G_and of goal_state * goal_state * int goal
 | G_or of goal_state * goal_state
 
 and term_state =
 | T_end
 | T_new of int term
 | T_term of int term * int prog
-| T_goal of goal_state * int term * int prog
+| T_goal of subst * goal_state * int list * int term * int prog
 

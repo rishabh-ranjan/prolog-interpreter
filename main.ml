@@ -245,19 +245,31 @@ let rec resolve_goal kb sub = function
 | G_end -> None, G_end
 | G_new g -> ( match g with
     | Empty -> Some sub, G_end
-    | Term t -> let sol, ts = resolve_term kb sub (T_new t) in sol, G_term ts
-    | And (l, r) -> resolve_goal kb sub (G_and (G_new l, G_new r))
+    | Term t ->
+        let sol, ts = resolve_term kb (T_new (subst sub t)) in
+        ( match sol with
+        | None -> None, G_end
+        | Some sub' -> Some (compose sub sub'), G_term ts
+        )
+    | And (l, r) -> resolve_goal kb sub (G_and (G_new l, G_new r, r))
     | Or (l, r) -> resolve_goal kb sub (G_or (G_new l, G_new r))
 )
 | G_term ts ->
-    let sol, ts' = resolve_term kb sub ts in sol, G_term ts'
-| G_and (ls, rs) ->
+    let sol, ts' = resolve_term kb ts in
+    ( match sol with
+    | None -> None, G_end
+    | Some sub' -> Some (compose sub sub'), G_term ts'
+    )
+| G_and (ls, rs, r) ->
     let sol, ls' = resolve_goal kb sub ls in
     ( match sol with
     | None -> None, G_end
     | Some sub' ->
-        let sol, rs' = resolve_goal kb (compose sub sub') rs in
-        sol, G_and (ls', rs')
+        let sol, rs' = resolve_goal kb sub' rs in
+        ( match sol with
+        | None -> resolve_goal kb sub (G_and (ls', G_new r, r))
+        | Some sub'' -> Some sub'', G_and (ls, rs', r)
+        )
     )
 (* TODO: store or state as well to cover all solutions to the or predicate *)
 | G_or (ls, rs) ->
@@ -266,26 +278,29 @@ let rec resolve_goal kb sub = function
     | None ->
         let sol, rs' = resolve_goal kb sub rs in
         sol, G_or (ls, rs')
-    | Some sub' -> Some (compose sub sub'), G_or (ls', rs)
+    | Some sub' -> Some sub', G_or (ls', rs)
     )
 
-and resolve_term kb sub = function
+and resolve_term kb = function
 | T_end -> None, T_end
-| T_new t -> resolve_term kb sub (T_term (t, kb))
+| T_new t -> resolve_term kb (T_term (t, kb))
 | T_term (t, kl) -> (match kl with
     | [] -> None, T_end
     | kh::kt ->
-        let (ct, cg) = rename_clause (vars t) kh in
+        let vl = vars t in
+        let (ct, cg) = rename_clause vl kh in
         ( match mgu t ct with
-        | None -> resolve_term kb sub (T_term (t, kt))
-        | Some m -> resolve_term kb (compose sub m) (T_goal (G_new cg, t, kt))
+        | None -> resolve_term kb (T_term (t, kt))
+        | Some m -> resolve_term kb (T_goal (m, G_new cg, vl, t, kt))
         )
 )
-| T_goal (gs, t, kt) ->
-    let sol, gs' = resolve_goal kb sub gs in
+| T_goal (m, gs, vl, t, kt) ->
+    let sol, gs' = resolve_goal kb m gs in
     ( match sol with
-    | None -> resolve_term kb sub (T_term (t, kt))
-    | Some sub' -> Some (compose sub sub'), (T_goal (gs', t, kt))
+    | None -> resolve_term kb (T_term (t, kt))
+    | Some sub ->
+        let r = clean_subst vl sub in
+        Some r, T_goal (m, gs', vl, t, kt)
     )
 
     (*
@@ -357,7 +372,7 @@ let rec explore kb inv gs =
         let inp = read_line () in
         print_string "\027[0m";
         ( match inp with
-        | ";" -> explore kb inv gs'
+        | "" -> explore kb inv gs'
         | _ -> ()
         )
 
