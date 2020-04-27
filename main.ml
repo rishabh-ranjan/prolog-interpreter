@@ -126,14 +126,14 @@ let rec resolve kb sc sub = function
         let (ct, cg) = rename_clause sc kh in
         ( match mgu t ct with
         | None -> resolve kb sc sub (Head (t, kt))
-        | Some m -> resolve kb (sc+1) sub (Body (sc, t, kt, m, New cg))
+        | Some m -> resolve kb sc sub (Body ((t, kt), m, New cg))
         )
 )
-| Body (s, t, kt, m, gs) ->
-    let sc', sol, gs' = resolve kb sc m gs in
+| Body (nh, m, gs) ->
+    let sc', sol, gs' = resolve kb (sc+1) m gs in
     ( match sol with
-    | None -> resolve kb s sub (Head (t, kt))
-    | Some sub' -> sc', Some (compose sub sub'), Body (s, t, kt, m, gs')
+    | None -> resolve kb sc sub (Head nh)
+    | Some sub' -> sc', Some (compose sub sub'), Body (nh, m, gs')
     )
 
 (*** user interface ***)
@@ -146,7 +146,7 @@ let reconsult file_name =
 
 (* exploration of resolution space *)
 let rec explore kb gs =
-    let _, sol, gs' = resolve kb 0 VarMap.empty gs in
+    let _, sol, gs' = resolve kb 1 VarMap.empty gs in
     match sol with
     | None -> print_string "\027[1;31mno.\027[0m\n"
     | Some s ->
