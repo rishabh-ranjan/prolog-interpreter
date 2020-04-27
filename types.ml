@@ -1,27 +1,25 @@
-module Int = struct let compare = compare type t = int end
-module IntSet = Set.Make(Int)
-module IntMap = Map.Make(Int)
-module StringMap = Map.Make(String)
+module Var = struct let compare = compare type t = int * string end
+module VarMap = Map.Make(Var)
 
-type 'a term = Var of 'a | Node of string * ('a term list)
+type term = Var of (int * string) | Node of string * (term list)
 
-type 'a goal =
+type goal =
 | Empty
-| Term of 'a term
-| And of 'a goal * 'a goal
-| Or of 'a goal * 'a goal
+| Term of term
+| And of goal * goal
+| Or of goal * goal
 
-type 'a clause = 'a term * 'a goal
+type clause = term * goal
 
-type 'a prog = 'a clause list
+type prog = clause list
 
-type subst = int term IntMap.t
+type subst = term VarMap.t
 
 type state =
 | End
-| New of int goal
-| And_goal of state * state * int goal
-| Or_goal of state * state
-| Head of int term * int prog
-| Body of int term * int prog * int list * subst * state
+| New of goal
+| And_goal of state * state * goal
+| Or_goal of state * goal
+| Head of term * prog
+| Body of int * term * prog * subst * state
 
