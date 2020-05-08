@@ -3,7 +3,7 @@
 ## Usage
 
 	$ make
-    $ ./main <path_to_prolog_file>
+    $ ./rpl <path_to_prolog_file>
 
 Use <code>\<enter\></code> to explore the resolution space.
 Any other input starts a fresh query.
