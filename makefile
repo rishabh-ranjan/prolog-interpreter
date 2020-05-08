@@ -1,9 +1,9 @@
-all: main
+all: rpl
 
-main: types.cmo parser.cmo lexer.cmo main.cmo
+rpl: types.cmo parser.cmo lexer.cmo rpl.cmo
 	ocamlc -o $@ $^
 
-main.cmo main.cmi: main.ml lexer.cmi parser.cmi types.cmi
+rpl.cmo rpl.cmi: rpl.ml lexer.cmi parser.cmi types.cmi
 	ocamlc -c $<
 
 lexer.cmo lexer.cmi: lexer.ml parser.cmi
@@ -25,7 +25,7 @@ types.cmo types.cmi: types.ml
 	ocamlc -c $<
 
 run: all
-	./main
+	./rpl
 
 clean:
-	rm *.cmi *.cmo main lexer.ml parser.ml parser.mli
+	rm *.cmi *.cmo rpl lexer.ml parser.ml parser.mli
