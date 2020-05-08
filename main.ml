@@ -1,3 +1,5 @@
+(** Author: Rishabh Ranjan **)
+
 open Types
 
 (*** printing ***)
@@ -95,48 +97,85 @@ let rename_clause n (t, g) = (rename_term n t, rename_goal n g)
 
 (*** goal resolution ***)
 
-let rec resolve kb sc sub = function
-| End -> sc, None, End
-| New g -> ( match g with
-    | Empty -> sc, Some sub, End
-    | Term t -> resolve kb sc sub (Head (subst sub t, kb))
-    | And (l, r) -> resolve kb sc sub (And_goal (New l, New r, r))
-    | Or (l, r) -> resolve kb sc sub (Or_goal (New l, r))
+(* on-the-fly traversal of the threaded decision tree *)
+let rec trav node = match node.decision with
+| G g -> ( match g with
+    | Empty -> ( match node.conjunct with
+        | None -> Some (node.sub, node.disjunct)
+        | Some g -> trav { node with
+            conjunct = None;
+            decision = G g;
+        }
+    )
+    | Term t -> trav { node with decision = K (subst node.sub t, node.kb) }
+    | And (l, r) -> trav { node with
+        conjunct = Some ( match node.conjunct with
+            | None -> r
+            | Some g -> And (r, g)
+        );
+        decision = G l;
+    }
+    | Or (l, r) -> trav { node with
+        disjunct = Some { node with decision = G r };
+        decision = G l;
+    }
 )
-| And_goal (ls, rs, r) ->
-    let lsc, lsol, ls' = resolve kb sc sub ls in
-    ( match lsol with
-    | None -> sc, None, End
-    | Some lsub ->
-        let rsc, rsol, rs' = resolve kb lsc lsub rs in
-        ( match rsol with
-        | None -> resolve kb sc sub (And_goal (ls', New r, r))
-        | _ -> rsc, rsol, And_goal (ls, rs', r)
-        )
+
+| K (t, l) -> ( match l with
+    | [] -> ( match node.disjunct with
+        | None -> None
+        | Some n -> trav n
     )
-| Or_goal (ls, r) ->
-    let lsc, lsol, ls' = resolve kb sc sub ls in
-    ( match lsol with
-    | None -> resolve kb sc sub (New r)
-    | _ -> lsc, lsol, Or_goal (ls', r)
-    )
-| Head (t, ks) -> ( match ks with
-    | [] -> sc, None, End
     | kh::kt ->
-        let (ct, cg) = rename_clause sc kh in
-        ( match mgu t ct with
-        | None -> resolve kb sc sub (Head (t, kt))
-        | Some m -> resolve kb sc sub (Body ((t, kt), m, New cg))
-        )
+        let (ct, cg) = rename_clause node.scope kh in
+        match mgu t ct with
+        | None -> trav { node with decision = K (t, kt) }
+        | Some m -> trav { node with
+            sub = compose node.sub m;
+            scope = node.scope + 1;
+            disjunct = Some { node with decision = K (t, kt) };
+            decision = G cg;
+        }
 )
-| Body (nh, m, gs) ->
-    let sc', sol, gs' = resolve kb (sc+1) m gs in
-    ( match sol with
-    | None -> resolve kb sc sub (Head nh)
-    | Some sub' -> sc', Some (compose sub sub'), Body (nh, m, gs')
-    )
+
+let make_node kb g = {
+    kb = kb;
+    sub = VarMap.empty;
+    scope = 1;
+    disjunct = None;
+    conjunct = None;
+    decision = G g;
+}
 
 (*** user interface ***)
+
+let yes = "\027[1;34myes\027[0m"
+let no = "\027[1;31mno.\027[0m\n"
+
+(* exploration of resolution space *)
+let rec explore node =
+    let res = trav node in
+    match res with
+    | None -> print_string no
+    | Some (sub, node_opt) ->
+        print_soln sub; print_string yes;
+        let inp = read_line () in
+        ( match inp with
+        | "" -> ( match node_opt with
+            | None -> print_string no
+            | Some n -> explore n
+            )
+        | _ -> ()
+        )
+
+let prompt = "\n?- "
+
+(* accept a query *)
+let query kb =
+    print_string prompt; flush stdout;
+    let lexbuf = Lexing.from_channel stdin in
+    let g = Parser.query Lexer.scan lexbuf in
+    make_node kb g |> explore
 
 (* knowledge base of the prolog program in `file_name' *)
 let reconsult file_name =
@@ -144,35 +183,13 @@ let reconsult file_name =
     let lexbuf = Lexing.from_channel in_channel in
     Parser.prog Lexer.scan lexbuf
 
-(* exploration of resolution space *)
-let rec explore kb gs =
-    let _, sol, gs' = resolve kb 1 VarMap.empty gs in
-    match sol with
-    | None -> print_string "\027[1;31mno.\027[0m\n"
-    | Some s ->
-        print_soln s;
-        print_string "\027[1;34myes\027[0m";
-        let inp = read_line () in
-        print_string "\027[0m";
-        ( match inp with
-        | "" -> explore kb gs'
-        | _ -> ()
-        )
-
-(* accept a query *)
-let query kb =
-    print_string "\n?- "; flush stdout;
-    let lexbuf = Lexing.from_channel stdin in
-    let g = Parser.query Lexer.scan lexbuf in
-    explore kb (New g)
-
 (* accepts prolog file once as a commandline arg *)
 let main () =
     if Array.length Sys.argv < 2 then
         print_endline "please provide file as a commandline argument"
     else
         let kb = reconsult Sys.argv.(1) in
-        print_endline "\027[1mrpl\027[0m - a prolog subset by Rishabh Ranjan";
+        print_endline "\027[1mrpl\027[0m: a prolog subset by Rishabh Ranjan";
         print_endline "- press enter to explore the resolution space";
         print_endline "- any other input starts a fresh query";
         print_endline "- Cmd-C, Ctrl-C or Ctrl-Z (system dependent) to exit";

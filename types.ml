@@ -10,16 +10,18 @@ type goal =
 | Or of (goal * goal)
 
 type clause = term * goal
-
 type prog = clause list
-
 type subst = term VarMap.t
 
-type state =
-| End
-| New of goal
-| And_goal of (state * state * goal)
-| Or_goal of (state * goal)
-| Head of (term * prog)
-| Body of ((term * prog) * subst * state)
+type decision =
+| G of goal
+| K of (term * (clause list))
 
+type node = {
+    kb: clause list;
+    sub: subst;
+    scope: int;
+    disjunct: node option;
+    conjunct: goal option;
+    decision: decision;
+}
